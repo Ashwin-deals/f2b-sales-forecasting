@@ -1,0 +1,12 @@
+# Ignore data files
+*.csv
+processed_data.csv
+
+# Ignore model binaries
+*.pkl
+model.pkl
+
+# Ignore environments and secrets
+.env
+__pycache__/
+*.pyc
