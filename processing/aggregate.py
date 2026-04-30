@@ -14,15 +14,17 @@ def aggregate_daily_sales(df):
     # Aggregate data: total sales per product per day
     df_agg = df.groupby(["productId", "date"], as_index=False)["sales"].sum()
     
-    # Restrict to recent data
+    # Smart Active Product Filtering
     df_agg["date"] = pd.to_datetime(df_agg["date"])
-    df_agg = df_agg[df_agg["date"] >= "2025-01-01"]
+    recent_cutoff = df_agg["date"].max() - pd.Timedelta(days=60)
+    recent_df = df_agg[df_agg["date"] >= recent_cutoff]
     
-    # Select top 50 active products
-    top_products = df_agg.groupby("productId")["sales"].sum().nlargest(50).index
-    df_agg = df_agg[df_agg["productId"].isin(top_products)]
+    active_products = recent_df.groupby("productId")["sales"].sum()
+    active_products = active_products[active_products > 2].index
     
-    logger.info(f"Filtered to {len(top_products)} active products since 2025.")
+    df_agg = df_agg[df_agg["productId"].isin(active_products)]
+    
+    logger.info(f"Filtered to {len(active_products)} active products (sales > 2 in last 60 days).")
     
     # Sort to ensure chronological order per product
     df_agg = df_agg.sort_values(["productId", "date"]).reset_index(drop=True)

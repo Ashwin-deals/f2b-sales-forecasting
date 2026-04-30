@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ def build_features(df):
     
     # Lag properties
     df["lag_1"] = df.groupby("productId")["sales"].shift(1)
+    df["lag_2"] = df.groupby("productId")["sales"].shift(2)
+    df["lag_3"] = df.groupby("productId")["sales"].shift(3)
     df["lag_7"] = df.groupby("productId")["sales"].shift(7)
     
     # Safe Rolling average
@@ -84,7 +87,27 @@ def build_features(df):
     df.drop(columns=["last_sale_date"], inplace=True)
     
     df["std_7"] = df.groupby("productId")["sales"].transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).std()).fillna(0)
-                    
+    
+    # Product-Level Signal Features (anti-collapse for low-demand SKUs)
+    df["rolling_max_7"] = df.groupby("productId")["sales"].transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).max()).fillna(0)
+    df["rolling_min_7"] = df.groupby("productId")["sales"].transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).min()).fillna(0)
+    df["sales_frequency_30d"] = df.groupby("productId")["sales"].transform(lambda x: (x.shift(1) > 0).rolling(window=30, min_periods=1).sum()).fillna(0)
+    
+    # Sales velocity: ratio of recent avg vs longer-term avg (captures momentum)
+    df["avg_30"] = df.groupby("productId")["sales"].transform(lambda x: x.shift(1).rolling(window=30, min_periods=1).mean()).fillna(0)
+    df["sales_velocity"] = (df["avg_7"] / (df["avg_30"] + 1e-6)).clip(upper=10)
+    
+    df["dow_avg_7"] = df["weekday"] * df["avg_7"]
+    
+    # Recency decay: exponential penalty for inactivity
+    df["recency_weight"] = np.exp(-df["days_since_sale"] / 7.0)
+    
+    # Binary flag: 1 if product sold in last 7 days
+    df["is_active_7d"] = (df["days_since_sale"] <= 7).astype(int)
+    
+    # lag_ratio: lag_1 vs avg_7 — high ratio = recent spike signal
+    df["lag_ratio"] = (df["lag_1"] / (df["avg_7"] + 1)).fillna(0)
+    
     # Drop rows with NaN values created by lag shifts
     df = df.dropna().reset_index(drop=True)
     

@@ -5,7 +5,7 @@ logger = logging.getLogger(__name__)
 
 def train_xgboost(X_train, y_train):
     """
-    Trains an XGBoost regression model on the provided data.
+    Trains a single-stage XGBoost regression model on the provided data.
     """
     if X_train.empty or y_train.empty:
         logger.error("Empty dataframe provided for training XGBoost.")
@@ -22,8 +22,7 @@ def train_xgboost(X_train, y_train):
         random_state=42
     )
     
-    logger.info("Training Regression Model (XGBoost Tweedie) on Full Data...")
+    logger.info("Training Regression Model (XGBoost Tweedie)...")
     model.fit(X_train, y_train)
     
     return model
-
