@@ -15,6 +15,8 @@ def fetch_order_data():
         "_id": 0,
         "productId": 1,
         "quantity": 1,
+        "subUnits": 1,
+        "unit": "$unitValue",
         "createdAt": 1
     }
     
@@ -33,6 +35,8 @@ def fetch_order_data():
                 "_id": 0,
                 "productId": "$farmProductId",
                 "quantity": 1,
+                "subUnits": 1,
+                "unit": "$unitValue",
                 "date": "$order_info.createdOn"
             }
         }
@@ -49,3 +53,15 @@ def fetch_order_data():
     logger.info(f"Fetched {len(retailorders_data)} records from offline orders.")
     
     return orderdetails_data, retailorders_data
+
+def fetch_products():
+    """
+    Fetches product details from the 'farmproducts' collection.
+    """
+    db = get_database()
+    logger.info("Fetching data from 'farmproducts' collection...")
+    products_cursor = db["farmproducts"].find(
+        {"isDeleted": False},
+        {"_id": 1, "productName": 1}
+    )
+    return list(products_cursor)

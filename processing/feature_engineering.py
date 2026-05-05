@@ -72,9 +72,11 @@ def build_features(df):
     df["lag_3"] = df.groupby("productId")["sales"].shift(3)
     df["lag_7"] = df.groupby("productId")["sales"].shift(7)
     
-    # Safe Rolling average
+    # Safe Rolling average and sum (using sales which represents actual quantity)
     df["avg_7"] = df.groupby("productId")["sales"] \
                     .transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).mean())
+    df["recent_sales"] = df.groupby("productId")["sales"] \
+                    .transform(lambda x: x.shift(1).rolling(window=7, min_periods=1).sum()).fillna(0)
                     
     # Advanced Classification Features
     df["avg_3"] = df.groupby("productId")["sales"].transform(lambda x: x.shift(1).rolling(window=3, min_periods=1).mean())

@@ -32,9 +32,17 @@ def parse_and_clean_data(orderdetails_data, retailorders_data):
         # Convert to datetime and strip time to just keep date
         df["date"] = pd.to_datetime(df["date"]).dt.normalize()
     
+    def extract_quantity(subunits):
+        if isinstance(subunits, list) and len(subunits) > 0:
+            return sum(item.get("quantity", 0) for item in subunits)
+        return 1  # fallback
+
+    if "subUnits" in df.columns:
+        df["final_quantity"] = df["subUnits"].apply(extract_quantity)
+    else:
+        df["final_quantity"] = 1
+
     if "quantity" in df.columns:
-        df = df.rename(columns={"quantity": "sales"})
-        # Ensure numeric type
-        df["sales"] = pd.to_numeric(df["sales"], errors="coerce").fillna(0)
+        df = df.drop(columns=["quantity"])
         
     return df
