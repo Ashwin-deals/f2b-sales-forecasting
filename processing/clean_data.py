@@ -31,6 +31,13 @@ def parse_and_clean_data(orderdetails_data, retailorders_data):
     if "date" in df.columns:
         # Convert to datetime and strip time to just keep date
         df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+        
+        # Keep only data from March 1, 2026 onwards
+        df = df[df["date"] >= pd.to_datetime("2026-03-01")]
+        
+        if df.empty:
+            logger.warning("No data found after date filtering.")
+            return df
     
     def extract_quantity(subunits):
         if isinstance(subunits, list) and len(subunits) > 0:
