@@ -259,6 +259,12 @@ k5.metric("Avg Profit Margin", f"{avg_margin:.1f}%")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# ── Anomaly Alert ─────────────────────────────────────────────────────────────
+if not profit_df.empty and "anomalyCount" in profit_df.columns:
+    anomalies = profit_df["anomalyCount"].sum()
+    if anomalies > 0:
+        st.warning(f"⚠️ **Data Integrity Alert:** Found {int(anomalies)} line items with suspicious profit margins (Revenue > 10x Purchase Cost). This often indicates incorrect unit configurations in 'castingscreens'.")
+
 # ── Plotly Globals ────────────────────────────────────────────────────────────
 plotly_config = {'displayModeBar': False}
 plotly_defaults = dict(
@@ -446,93 +452,44 @@ with tab1:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── [ Heatmap ] [ Monthly Comparison ] ──
-    c_heat, c_stack = st.columns([5, 5])
-    
+    # ── [ Monthly Comparison ] ──
     if not trends_df.empty:
-        # Prepare Top 5 vendors for Heatmap & Stacked to avoid clutter
+        # Prepare Top 5 vendors for Stacked to avoid clutter
         top5_vendor_names = purchase_df.sort_values("totalPurchaseAmt", ascending=False).head(5)["vendorName"].tolist()
         t_top5 = filtered_trends[filtered_trends["vendorName"].isin(top5_vendor_names)].copy() if 'filtered_trends' in locals() else trends_df[trends_df["vendorName"].isin(top5_vendor_names)].copy()
         
-        with c_heat:
-            st.markdown("<div class='chart-title'>Monthly Purchase Heatmap</div>", unsafe_allow_html=True)
-            st.markdown("<div class='chart-subtitle'>Purchase intensity across top 5 vendors</div>", unsafe_allow_html=True)
+        st.markdown("<div class='chart-title'>Monthly Comparison (Top 5)</div>", unsafe_allow_html=True)
+        st.markdown("<div class='chart-subtitle'>Stacked volume by top performing vendors</div>", unsafe_allow_html=True)
+        
+        if filtered_trends.empty or t_top5.empty:
+            st.markdown("""
+            <div class='empty-state-card' style='padding: 20px;'>
+                <div class='empty-state-text'>No data</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            t_top5 = t_top5.sort_values("monthStr")
+            fig_stack = px.bar(
+                t_top5, x="monthStr", y="totalPurchaseAmt", color="vendorName",
+                barmode="stack", color_discrete_sequence=primary_palette
+            )
+            fig_stack.update_traces(
+                hovertemplate="<b>%{x}</b><br>%{fullData.name}: ₹%{y:,.0f}<extra></extra>",
+                marker=dict(line=dict(color='#FFFFFF', width=1))
+            )
             
-            if filtered_trends.empty:
-                st.markdown("""
-                <div class='empty-state-card' style='padding: 20px;'>
-                    <div class='empty-state-text'>No data</div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                pivot = t_top5.pivot_table(index="vendorName", columns="monthStr", values="totalPurchaseAmt", aggfunc="sum")
-                pivot = pivot.dropna(axis=1, how='all').fillna(0)
-                
-                if pivot.empty:
-                    st.info("No data available for top vendors.")
-                else:
-                    month_order = sorted(pivot.columns, key=lambda x: datetime.strptime(x, "%Y-%m") if len(x.split('-'))==2 else x)
-                    pivot = pivot[month_order]
-                    
-                    # Dynamically adjust aspect ratio for sparse data
-                    num_cols = len(pivot.columns)
-                    aspect_ratio = "auto" if num_cols > 2 else num_cols * 0.8
-                    
-                    fig_heat = px.imshow(
-                        pivot.values,
-                        x=pivot.columns,
-                        y=pivot.index,
-                        color_continuous_scale="Blues",
-                        aspect=aspect_ratio,
-                        text_auto=".2s"
-                    )
-                    fig_heat.update_traces(
-                        hovertemplate="<b>Vendor:</b> %{y}<br><b>Month:</b> %{x}<br><b>Amount:</b> ₹%{z:,.0f}<extra></extra>",
-                        textfont=dict(color="#0F172A", family="Inter")
-                    )
-                    fig_heat.update_layout(
-                        **plotly_defaults,
-                        height=400,
-                        margin=dict(l=10, r=10, t=20, b=40),
-                        coloraxis_showscale=False,
-                        xaxis=dict(title="", showgrid=False, type='category', tickangle=0),
-                        yaxis=dict(title="", showgrid=False, tickfont=dict(weight="bold", color="#0F172A"))
-                    )
-                    st.plotly_chart(fig_heat, use_container_width=True, config=plotly_config)
+            bar_width = min(0.3 * t_top5["monthStr"].nunique(), 0.8)
             
-        with c_stack:
-            st.markdown("<div class='chart-title'>Monthly Comparison (Top 5)</div>", unsafe_allow_html=True)
-            st.markdown("<div class='chart-subtitle'>Stacked volume by top performing vendors</div>", unsafe_allow_html=True)
-            
-            if filtered_trends.empty or t_top5.empty:
-                st.markdown("""
-                <div class='empty-state-card' style='padding: 20px;'>
-                    <div class='empty-state-text'>No data</div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                t_top5 = t_top5.sort_values("monthStr")
-                fig_stack = px.bar(
-                    t_top5, x="monthStr", y="totalPurchaseAmt", color="vendorName",
-                    barmode="stack", color_discrete_sequence=primary_palette
-                )
-                fig_stack.update_traces(
-                    hovertemplate="<b>%{x}</b><br>%{fullData.name}: ₹%{y:,.0f}<extra></extra>",
-                    marker=dict(line=dict(color='#FFFFFF', width=1))
-                )
-                
-                bar_width = min(0.3 * t_top5["monthStr"].nunique(), 0.8)
-                
-                fig_stack.update_layout(
-                    **plotly_defaults,
-                    height=400,
-                    margin=dict(l=10, r=10, t=20, b=40),
-                    xaxis=dict(title="", showgrid=False, type='category'),
-                    yaxis=dict(title="", showgrid=True, gridcolor="rgba(0,0,0,0.05)", zeroline=False),
-                    legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, title=""),
-                    bargap=1-bar_width
-                )
-                st.plotly_chart(fig_stack, use_container_width=True, config=plotly_config)
+            fig_stack.update_layout(
+                **plotly_defaults,
+                height=450,
+                margin=dict(l=10, r=10, t=20, b=40),
+                xaxis=dict(title="", showgrid=False, type='category'),
+                yaxis=dict(title="", showgrid=True, gridcolor="rgba(0,0,0,0.05)", zeroline=False),
+                legend=dict(orientation="h", yanchor="top", y=-0.2, xanchor="center", x=0.5, title=""),
+                bargap=1-bar_width
+            )
+            st.plotly_chart(fig_stack, use_container_width=True, config=plotly_config)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — PROFIT ANALYSIS
@@ -678,16 +635,24 @@ with tab3:
 
             st.markdown("<br><div class='chart-title'>Product Details</div><br>", unsafe_allow_html=True)
             bd = breakdown_df.copy()
+            # Remove any duplicate variants showing up as the exact same product name
+            bd = bd.drop_duplicates(subset=["productName"], keep="first")
             for col in ["totalPurchaseCost","totalGST","totalRevenue","estimatedProfit","avgPricePerUnit","sellingPricePerUnit"]:
                 if col in bd.columns: bd[col] = bd[col].apply(fmt_inr)
             if "profitPercentage" in bd.columns:
                 bd["profitPercentage"] = bd["profitPercentage"].apply(lambda x: f"{x:.1f}%")
+            if "packSize" in bd.columns and "unitValue" in bd.columns:
+                bd["packSize"] = bd.apply(
+                    lambda r: f"{int(r['packSize']) if pd.notnull(r['packSize']) and str(r['packSize']).replace('.','').isdigit() else r['packSize']} {r['unitValue']}".strip()
+                    if pd.notnull(r['packSize']) and str(r['packSize']).strip() != "0" else "N/A", axis=1
+                )
             bd = bd.rename(columns={
                 "productName": "Product", "unitValue": "Unit", "totalQuantity": "Qty",
                 "totalPurchaseCost": "Purchase Cost", "totalGST": "GST",
                 "avgPricePerUnit": "Avg Buy Price", "sellingPricePerUnit": "Sell Price",
-                "profitPercentage": "Margin %", "totalRevenue": "Revenue", "estimatedProfit": "Est. Profit"
+                "packSize": "Sell Qty", "profitPercentage": "Margin %", 
+                "totalRevenue": "Revenue", "estimatedProfit": "Est. Profit"
             })
             bd.insert(0, "S.No", range(1, len(bd)+1))
-            show = [c for c in ["S.No","Product","Unit","Qty","Purchase Cost","GST","Avg Buy Price","Sell Price","Margin %","Revenue","Est. Profit"] if c in bd.columns]
+            show = [c for c in ["S.No","Product","Unit","Qty","Purchase Cost","GST","Avg Buy Price","Sell Price","Sell Qty","Margin %","Revenue","Est. Profit"] if c in bd.columns]
             st.dataframe(bd[show], use_container_width=True, hide_index=True)

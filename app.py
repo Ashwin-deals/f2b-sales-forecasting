@@ -2,7 +2,7 @@ import logging
 from db.fetch_data import fetch_order_data, fetch_products
 from processing.clean_data import parse_and_clean_data
 from processing.aggregate import aggregate_daily_sales
-from processing.feature_engineering import build_features
+# ML models and unused feature engineering removed
 # ML models completely removed
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -196,8 +196,6 @@ def main():
     top_products = df_final.head(10)
 
     # SAVE OUTPUTS
-    df_final.to_csv("demand_intelligence_ranked.csv", index=False)
-    top_products.to_csv("top_products.csv", index=False)
     df_final.to_csv("latest_demand_intelligence.csv", index=False)
 
     # MAINTAIN HISTORY

@@ -140,13 +140,15 @@ with hc1:
 # ── Content ───────────────────────────────────────────────────────────────────
 try:
     df = pd.read_csv("latest_demand_intelligence.csv")
+    # Remove any duplicate products based on product name to prevent skewed counts and table clutter
+    df = df.drop_duplicates(subset=["productName"], keep="first")
     
     # Summary Cards (Top Section)
     col1, col2, col3, col4 = st.columns(4)
     
-    threshold = df["priority_score"].quantile(0.75)
-    priority_count = len(df[df["priority_score"] >= threshold])
-    col1.metric("🔥 Top Products (Top 25%)", priority_count)
+    # Count products that actually have demand/priority (score > 1)
+    priority_count = len(df[df["priority_score"] > 1])
+    col1.metric("🔥 Priority Products", priority_count)
     col2.metric("📦 Active Products", (df["activity"] == "ACTIVE").sum())
     col3.metric("🚫 No Demand", (df["demand_level"] == "NO DEMAND").sum())
     col4.metric("📊 Total Products", len(df))

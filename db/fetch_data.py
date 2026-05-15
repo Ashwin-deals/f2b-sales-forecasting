@@ -5,22 +5,15 @@ logger = logging.getLogger(__name__)
 
 def fetch_order_data():
     """
-    Fetches raw order data from the 'orderdetails' and 'retailorders' collections.
+    Fetches raw order data from the 'orderdetails' and 'retaildetails' collections.
     Strictly performs read-only operations.
     Extracts only specific required fields to minimize memory usage.
     """
     db = get_database()
     
-    projection = {
-        "_id": 0,
-        "productId": 1,
-        "quantity": 1,
-        "subUnits": 1,
-        "unit": "$unitValue",
-        "createdAt": 1
-    }
-    
-    pipeline = [
+    # 1. Fetch Online Orders (orderdetails)
+    # Note: We join with 'orders' to get the creation date
+    pipeline_online = [
         {
             "$lookup": {
                 "from": "orders",
@@ -37,22 +30,30 @@ def fetch_order_data():
                 "quantity": 1,
                 "subUnits": 1,
                 "unit": "$unitValue",
-                "date": "$order_info.createdOn"
+                "date": {"$ifNull": ["$order_info.createdOn", "$createdAt"]}
             }
         }
     ]
     
-    logger.info("Fetching data from 'orderdetails' collection (with orders join)...")
-    orderdetails_cursor = db.orderdetails.aggregate(pipeline)
-    orderdetails_data = list(orderdetails_cursor)
+    logger.info("Fetching data from 'orderdetails' collection...")
+    orderdetails_data = list(db.orderdetails.aggregate(pipeline_online))
     logger.info(f"Fetched {len(orderdetails_data)} records from online orders.")
     
-    logger.info("Fetching data from 'retailorders' collection...")
-    retailorders_cursor = db.retailorders.find({}, projection)
-    retailorders_data = list(retailorders_cursor)
-    logger.info(f"Fetched {len(retailorders_data)} records from offline orders.")
+    # 2. Fetch Retail Orders (retaildetails)
+    # Field names in retaildetails: farmProductId, quantity, createdOn
+    projection_offline = {
+        "_id": 0,
+        "productId": "$farmProductId",
+        "quantity": 1,
+        "unit": "$unitValue",
+        "date": "$createdOn"
+    }
     
-    return orderdetails_data, retailorders_data
+    logger.info("Fetching data from 'retaildetails' collection...")
+    retaildetails_data = list(db.retaildetails.find({}, projection_offline))
+    logger.info(f"Fetched {len(retaildetails_data)} records from offline orders.")
+    
+    return orderdetails_data, retaildetails_data
 
 def fetch_products():
     """

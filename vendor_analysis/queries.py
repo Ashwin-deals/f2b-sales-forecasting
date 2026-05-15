@@ -27,13 +27,13 @@ WP_STATUS         = "status"               # e.g. "Completed"
 WP_PAYMENT_STATUS = "paymentStatus"
 
 # ── productDetails array sub-document fields ──────────────────────────────────
-PD_PRODUCT_ID     = "productDetails.productId"
-PD_PRODUCT_NAME   = "productDetails.productName"
-PD_QUANTITY       = "productDetails.totalquantity"      # qty received
-PD_PRICE_PER_UNIT = "productDetails.pricePerUnitWithTax"
-PD_PURCHASE_COST  = "productDetails.purchaseCost"       # line-level cost
-PD_GST_VALUE      = "productDetails.gstValue"           # GST % (e.g. 5)
-PD_UNIT           = "productDetails.unitValue"
+PD_PRODUCT_ID             = "productDetails.productId"
+PD_PRODUCT_NAME           = "productDetails.productName"
+PD_BASE_UNIT_QUANTITY     = "productDetails.totalquantity"      # qty received
+PD_PURCHASE_COST_PER_UNIT = "productDetails.pricePerUnitWithTax"
+PD_PURCHASE_COST          = "productDetails.purchaseCost"       # line-level cost
+PD_GST_VALUE              = "productDetails.gstValue"           # GST % (e.g. 5)
+PD_UNIT                   = "productDetails.unitValue"
 
 # ── vendors fields ────────────────────────────────────────────────────────────
 V_NAME            = "vendorName"
@@ -47,7 +47,7 @@ CS_SELLING_PRICE  = "sellingPricePerUnit"
 CS_NUM_PACKS      = "numberOfPacks"
 CS_PROFIT_PCT     = "profitPercentage"
 CS_PROFIT_VAL     = "profitValue"
-CS_SELLING_COST   = "sellingCost"          # total selling value
+CS_SELLING_COST_PER_UNIT = "sellingCost"          # total selling value per base unit
 CS_COST_PER_UNIT  = "costPerUnit"
 CS_PACK_SIZE      = "packSize"
 CS_CREATED_ON     = "createdOn"
@@ -123,11 +123,11 @@ def get_vendor_purchase_summary(db: Database):
         # Group by vendor
         {"$group": {
             "_id":              f"${WP_VENDOR_ID}",
-            "totalQuantity":    {"$sum": {"$ifNull": ["$productDetails.totalquantity", 0]}},
-            "totalPurchaseAmt": {"$sum": {"$ifNull": ["$productDetails.purchaseCost", 0]}},
+            "totalQuantity":    {"$sum": {"$ifNull": [f"${PD_BASE_UNIT_QUANTITY}", 0]}},
+            "totalPurchaseAmt": {"$sum": {"$ifNull": [f"${PD_PURCHASE_COST}", 0]}},
             "totalGST":         {"$sum": "$lineGST"},
             "transactionCount": {"$sum": 1},
-            "uniqueProducts":   {"$addToSet": "$productDetails.productId"},
+            "uniqueProducts":   {"$addToSet": f"${PD_PRODUCT_ID}"},
             "firstDate":        {"$min": f"${WP_PURCHASE_DATE}"},
             "lastDate":         {"$max": f"${WP_PURCHASE_DATE}"},
         }},
@@ -174,7 +174,7 @@ def get_profit_analysis(db: Database):
     Joins warehousepurchases (unwound productDetails) → castingscreens
     via productId to compute revenue, cost, and profit per vendor.
 
-    Revenue = sellingPricePerUnit × numberOfPacks (from castingscreens)
+    Revenue = purchaseCost + estimated profit from the casting profit percentage
     Cost    = purchaseCost per product line (includes GST)
     Profit  = Revenue − Cost
     """
@@ -189,34 +189,52 @@ def get_profit_analysis(db: Database):
         {"$unwind": {"path": "$productDetails", "preserveNullAndEmptyArrays": False}},
         {"$match": {"productDetails.isDeleted": {"$ne": True}}},
 
-        # Join castingscreens on productId
+        # Join the latest castingscreen on productId. A simple lookup + unwind
+        # duplicates purchase lines when a product has multiple casting records.
         {"$lookup": {
             "from": COL_CASTINGSCREENS,
-            "localField": "productDetails.productId",
-            "foreignField": CS_PRODUCT_ID,
+            "let": {"lineProductId": "$productDetails.productId"},
+            "pipeline": [
+                {"$match": {
+                    "$expr": {"$eq": [f"${CS_PRODUCT_ID}", "$$lineProductId"]},
+                    "isDeleted": {"$ne": True}
+                }},
+                {"$sort": {CS_CREATED_ON: -1}},
+                {"$limit": 1}
+            ],
             "as": "casting"
         }},
-        # Take the most recent castingscreen entry for this product
         {"$unwind": {"path": "$casting", "preserveNullAndEmptyArrays": True}},
 
         # Compute line-level financials
         {"$addFields": {
-            "lineSellingPrice": {"$ifNull": [f"$casting.{CS_SELLING_PRICE}", 0]},
-            "lineNumPacks":     {"$ifNull": [f"$casting.{CS_NUM_PACKS}",     0]},
-            "linePurchaseCost": {"$ifNull": ["$productDetails.purchaseCost", 0]},
+            "baseUnitQuantity": {"$ifNull": [f"${PD_BASE_UNIT_QUANTITY}", 0]},
+            "purchaseCost":     {"$ifNull": [f"${PD_PURCHASE_COST}", 0]},
+            "profitPct":        {"$ifNull": [f"$casting.{CS_PROFIT_PCT}", 0]},
             "lineGST": {
                 "$multiply": [
-                    {"$ifNull": ["$productDetails.purchaseCost", 0]},
-                    {"$divide": [{"$ifNull": ["$productDetails.gstValue", 0]}, 100]}
+                    {"$ifNull": [f"${PD_PURCHASE_COST}", 0]},
+                    {"$divide": [{"$ifNull": [f"${PD_GST_VALUE}", 0]}, 100]}
                 ]
             }
         }},
         {"$addFields": {
-            "lineRevenue": {"$multiply": ["$lineSellingPrice", "$lineNumPacks"]},
-            "lineProfit":  {
-                "$subtract": [
-                    {"$multiply": ["$lineSellingPrice", "$lineNumPacks"]},
-                    "$linePurchaseCost"
+            "lineProfit": {
+                "$multiply": [
+                    "$purchaseCost",
+                    {"$divide": ["$profitPct", 100]}
+                ]
+            }
+        }},
+        {"$addFields": {
+            "lineRevenue": {"$add": ["$purchaseCost", "$lineProfit"]}
+        }},
+        {"$addFields": {
+            "isAnomaly": {
+                "$cond": [
+                    {"$gt": ["$lineRevenue", {"$multiply": ["$purchaseCost", 10]}]},
+                    True,
+                    False
                 ]
             }
         }},
@@ -225,16 +243,17 @@ def get_profit_analysis(db: Database):
         {"$group": {
             "_id":              f"${WP_VENDOR_ID}",
             "totalRevenue":     {"$sum": "$lineRevenue"},
-            "totalPurchaseAmt": {"$sum": "$linePurchaseCost"},
+            "totalPurchaseAmt": {"$sum": "$purchaseCost"},
             "totalGST":         {"$sum": "$lineGST"},
             "estimatedProfit":  {"$sum": "$lineProfit"},
-            "totalQuantity":    {"$sum": {"$ifNull": ["$productDetails.totalquantity", 0]}},
+            "totalQuantity":    {"$sum": "$baseUnitQuantity"},
             "transactionCount": {"$sum": 1},
+            "anomalyCount":     {"$sum": {"$cond": ["$isAnomaly", 1, 0]}}
         }},
 
         # Profit margin %
         {"$addFields": {
-            "totalCost": {"$add": ["$totalPurchaseAmt", "$totalGST"]},
+            "totalCost": "$totalPurchaseAmt",
             "profitMarginPct": {
                 "$cond": [
                     {"$eq": ["$totalRevenue", 0]},
@@ -265,6 +284,7 @@ def get_profit_analysis(db: Database):
             "profitMarginPct":  1,
             "totalQuantity":    1,
             "transactionCount": 1,
+            "anomalyCount":     1,
         }},
         {"$sort": {"estimatedProfit": -1}}
     ]
@@ -323,13 +343,13 @@ def get_monthly_vendor_trends(db: Database):
                 "month":    "$month",
                 "monthStr": "$monthStr"
             },
-            "totalQuantity":    {"$sum": {"$ifNull": ["$productDetails.totalquantity", 0]}},
-            "totalPurchaseAmt": {"$sum": {"$ifNull": ["$productDetails.purchaseCost", 0]}},
+            "totalQuantity":    {"$sum": {"$ifNull": [f"${PD_BASE_UNIT_QUANTITY}", 0]}},
+            "totalPurchaseAmt": {"$sum": {"$ifNull": [f"${PD_PURCHASE_COST}", 0]}},
             "totalGST": {
                 "$sum": {
                     "$multiply": [
-                        {"$ifNull": ["$productDetails.purchaseCost", 0]},
-                        {"$divide": [{"$ifNull": ["$productDetails.gstValue", 0]}, 100]}
+                        {"$ifNull": [f"${PD_PURCHASE_COST}", 0]},
+                        {"$divide": [{"$ifNull": [f"${PD_GST_VALUE}", 0]}, 100]}
                     ]
                 }
             },
@@ -419,36 +439,56 @@ def get_vendor_product_breakdown(db: Database, vendor_id: str):
 
         # Group by product
         {"$group": {
-            "_id":              "$productDetails.productId",
-            "productName":      {"$first": "$productDetails.productName"},
-            "unitValue":        {"$first": "$productDetails.unitValue"},
-            "totalQuantity":    {"$sum": {"$ifNull": ["$productDetails.totalquantity", 0]}},
-            "totalPurchaseCost":{"$sum": {"$ifNull": ["$productDetails.purchaseCost", 0]}},
+            "_id":              f"${PD_PRODUCT_ID}",
+            "productName":      {"$first": f"${PD_PRODUCT_NAME}"},
+            "unitValue":        {"$first": f"${PD_UNIT}"},
+            "totalQuantity":    {"$sum": {"$ifNull": [f"${PD_BASE_UNIT_QUANTITY}", 0]}},
+            "totalPurchaseCost":{"$sum": {"$ifNull": [f"${PD_PURCHASE_COST}", 0]}},
             "totalGST":         {"$sum": "$lineGST"},
-            "avgPricePerUnit":  {"$avg": {"$ifNull": ["$productDetails.pricePerUnitWithTax", 0]}},
+            "avgPricePerUnit":  {"$avg": {"$ifNull": [f"${PD_PURCHASE_COST_PER_UNIT}", 0]}},
             "transactionCount": {"$sum": 1},
         }},
 
-        # Join castingscreens for selling price
+        # Join the latest castingscreen for selling price/revenue. Limiting to
+        # one casting record prevents repeated product rows from inflating totals.
         {"$lookup": {
             "from": COL_CASTINGSCREENS,
-            "localField": "_id",
-            "foreignField": CS_PRODUCT_ID,
+            "let": {"productId": "$_id"},
+            "pipeline": [
+                {"$match": {
+                    "$expr": {"$eq": [f"${CS_PRODUCT_ID}", "$$productId"]},
+                    "isDeleted": {"$ne": True}
+                }},
+                {"$sort": {CS_CREATED_ON: -1}},
+                {"$limit": 1}
+            ],
             "as": "casting"
         }},
         {"$unwind": {"path": "$casting", "preserveNullAndEmptyArrays": True}},
 
+        # Estimate financials from the actual vendor purchase amount. Casting
+        # sellingCost can represent a different batch size for the same product.
         {"$addFields": {
-            "sellingPricePerUnit": {"$ifNull": [f"$casting.{CS_SELLING_PRICE}", 0]},
-            "numberOfPacks":       {"$ifNull": [f"$casting.{CS_NUM_PACKS}",     0]},
-            "profitPercentage":    {"$ifNull": [f"$casting.{CS_PROFIT_PCT}",    0]},
+            "profitPercentage": {"$ifNull": [f"$casting.{CS_PROFIT_PCT}", 0]},
+            "packSize":            {"$ifNull": [f"$casting.{CS_PACK_SIZE}",     ""]},
         }},
         {"$addFields": {
-            "totalRevenue":    {"$multiply": ["$sellingPricePerUnit", "$numberOfPacks"]},
             "estimatedProfit": {
-                "$subtract": [
-                    {"$multiply": ["$sellingPricePerUnit", "$numberOfPacks"]},
-                    "$totalPurchaseCost"
+                "$multiply": [
+                    "$totalPurchaseCost",
+                    {"$divide": ["$profitPercentage", 100]}
+                ]
+            }
+        }},
+        {"$addFields": {
+            "totalRevenue": {"$add": ["$totalPurchaseCost", "$estimatedProfit"]}
+        }},
+        {"$addFields": {
+            "isAnomaly": {
+                "$cond": [
+                    {"$gt": ["$totalRevenue", {"$multiply": ["$totalPurchaseCost", 10]}]},
+                    True,
+                    False
                 ]
             }
         }},
@@ -462,12 +502,13 @@ def get_vendor_product_breakdown(db: Database, vendor_id: str):
             "totalPurchaseCost":  1,
             "totalGST":           1,
             "avgPricePerUnit":    1,
-            "sellingPricePerUnit":1,
-            "numberOfPacks":      1,
+            "sellingPricePerUnit":{"$ifNull": [f"$casting.{CS_SELLING_PRICE}", 0]},
+            "packSize":           1,
             "profitPercentage":   1,
             "totalRevenue":       1,
             "estimatedProfit":    1,
             "transactionCount":   1,
+            "isAnomaly":          1,
         }},
         {"$sort": {"totalPurchaseCost": -1}}
     ]

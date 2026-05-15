@@ -30,26 +30,32 @@ def parse_and_clean_data(orderdetails_data, retailorders_data):
     # Normalize columns
     if "date" in df.columns:
         # Convert to datetime and strip time to just keep date
-        df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+        df["date"] = pd.to_datetime(df["date"], errors='coerce').dt.normalize()
         
-        # Keep only data from March 1, 2026 onwards
-        df = df[df["date"] >= pd.to_datetime("2026-03-01")]
+        # Keep only data from January 1, 2025 onwards (including historical baseline)
+        df = df[df["date"] >= pd.to_datetime("2025-01-01")]
         
         if df.empty:
             logger.warning("No data found after date filtering.")
             return df
     
-    def extract_quantity(subunits):
+    def extract_quantity(row):
+        # 1. Check if subUnits (array) exists (Online Orders)
+        subunits = row.get("subUnits")
         if isinstance(subunits, list) and len(subunits) > 0:
             return sum(item.get("quantity", 0) for item in subunits)
+        
+        # 2. Check if quantity field exists directly (Retail Details)
+        qty = row.get("quantity")
+        if pd.notnull(qty) and isinstance(qty, (int, float)):
+            return qty
+            
         return 1  # fallback
 
-    if "subUnits" in df.columns:
-        df["final_quantity"] = df["subUnits"].apply(extract_quantity)
-    else:
-        df["final_quantity"] = 1
+    df["final_quantity"] = df.apply(extract_quantity, axis=1)
 
-    if "quantity" in df.columns:
-        df = df.drop(columns=["quantity"])
+    # Clean up redundant columns
+    cols_to_drop = ["quantity", "subUnits"]
+    df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
         
     return df
