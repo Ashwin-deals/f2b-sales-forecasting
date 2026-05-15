@@ -396,7 +396,9 @@ with tab1:
                 text="totalPurchaseAmt",
             )
             fig_bar.update_traces(
-                texttemplate="₹%{x:,.0f}", textposition="outside", 
+                texttemplate="₹%{x:,.0f}", 
+                textposition="outside", 
+                cliponaxis=False,
                 textfont=dict(size=13, color="#111827", family="Inter"),
                 hovertemplate="<b>%{y}</b><br>Amount: ₹%{x:,.0f}<extra></extra>",
                 marker=dict(line=dict(width=0)),
@@ -405,7 +407,7 @@ with tab1:
             fig_bar.update_layout(
                 **plotly_defaults,
                 height=500,
-                margin=dict(l=10, r=100, t=10, b=20),
+                margin=dict(l=10, r=150, t=10, b=20),
                 yaxis=dict(automargin=True, title="", tickfont=dict(color="#0F172A", weight="bold")),
                 xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)", zeroline=False, title="", showticklabels=False),
                 coloraxis_showscale=False,
@@ -427,26 +429,35 @@ with tab1:
                 df_pie = top_5
                 
             fig_pie = px.pie(
-                df_pie, names="vendorName", values="totalPurchaseAmt", hole=0.65,
+                df_pie, names="vendorName", values="totalPurchaseAmt", hole=0.5,
                 color_discrete_sequence=primary_palette
             )
             fig_pie.update_traces(
-                textinfo="percent", textposition="outside",
+                textinfo="percent", textposition="inside",
+                insidetextorientation='horizontal',
                 hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<br>%{percent}<extra></extra>",
-                marker=dict(line=dict(color='#FFFFFF', width=3))
+                marker=dict(line=dict(color='#FFFFFF', width=2))
             )
             # Add Total Center Text
             total_val = purchase_df["totalPurchaseAmt"].sum()
             fig_pie.add_annotation(
-                text=f"<span style='font-size:14px;color:#6B7280'>Total Purchase</span><br><br><span style='font-size:24px;font-weight:700;color:#0F172A'>{fmt_inr(total_val)}</span>",
+                text=f"<span style='font-size:12px;color:#6B7280'>Total Purchase</span><br><br><span style='font-size:18px;font-weight:700;color:#0F172A'>{fmt_inr(total_val)}</span>",
                 x=0.5, y=0.5, showarrow=False
             )
             fig_pie.update_layout(
                 **plotly_defaults,
-                height=500,
-                margin=dict(l=20, r=150, t=20, b=20),
+                height=580,
+                margin=dict(l=30, r=30, t=20, b=150),
                 showlegend=True,
-                legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.0, title="")
+                legend=dict(
+                    orientation="h", 
+                    yanchor="top", y=-0.15, 
+                    xanchor="center", x=0.5, 
+                    title="",
+                    font=dict(size=10),
+                    itemwidth=40
+                ),
+                uniformtext=dict(minsize=10, mode='hide')
             )
             st.plotly_chart(fig_pie, use_container_width=True, config=plotly_config)
 
@@ -522,6 +533,7 @@ with tab2:
         fig_profit.update_traces(
             texttemplate="%{x:.1f}%" if is_pct else "₹%{x:,.0f}",
             textposition="outside", 
+            cliponaxis=False,
             textfont=dict(size=13, color="#0F172A", family="Inter"),
             hovertemplate="<b>%{y}</b><br>Value: %{text}<br>Margin: %{marker.color:.1f}%<extra></extra>",
             marker=dict(line=dict(width=0)), width=0.7
@@ -529,7 +541,7 @@ with tab2:
         fig_profit.update_layout(
             **plotly_defaults,
             height=600,
-            margin=dict(l=10, r=100, t=10, b=20),
+            margin=dict(l=10, r=150, t=10, b=20),
             yaxis=dict(automargin=True, title="", tickfont=dict(color="#0F172A", weight="bold")),
             xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)", zeroline=False, title="", showticklabels=False),
             coloraxis_showscale=False,
@@ -602,13 +614,15 @@ with tab3:
                     text="estimatedProfit"
                 )
                 fig_prod.update_traces(
-                    texttemplate="₹%{x:,.0f}", textposition="outside", 
+                    texttemplate="₹%{x:,.0f}", 
+                    textposition="outside", 
+                    cliponaxis=False,
                     textfont=dict(size=12, family="Inter", color="#0F172A"),
                     hovertemplate="<b>%{y}</b><br>Profit: ₹%{x:,.0f}<extra></extra>", width=0.7
                 )
                 fig_prod.update_layout(
                     **plotly_defaults,
-                    height=500, margin=dict(l=10, r=100, t=10, b=10),
+                    height=500, margin=dict(l=10, r=150, t=10, b=10),
                     yaxis=dict(automargin=True, title="", tickfont=dict(weight="bold")),
                     xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)", title="", showticklabels=False),
                     coloraxis_showscale=False,
@@ -617,21 +631,47 @@ with tab3:
 
             with pc2:
                 st.markdown("<div class='chart-title'>Revenue Share</div>", unsafe_allow_html=True)
-                st.markdown("<div class='chart-subtitle'>Top 10 products proportion</div>", unsafe_allow_html=True)
+                st.markdown("<div class='chart-subtitle'>Product contribution to total revenue</div>", unsafe_allow_html=True)
+                
+                # Filter top 10 for clarity in pie
+                df_rev_pie = breakdown_df.head(10).copy()
+                total_rev = breakdown_df["totalRevenue"].sum()
+                top_prod  = df_rev_pie.iloc[0]["productName"] if not df_rev_pie.empty else "N/A"
+                top_val   = df_rev_pie.iloc[0]["totalRevenue"] if not df_rev_pie.empty else 0
+
                 fig_rev = px.pie(
-                    breakdown_df.head(10), names="productName", values="totalRevenue", hole=0.6,
+                    df_rev_pie, names="productName", values="totalRevenue", hole=0.55,
                     color_discrete_sequence=primary_palette
                 )
                 fig_rev.update_traces(
-                    textinfo="percent", textposition="outside",
-                    hovertemplate="<b>%{label}</b><br>₹%{value:,.0f}<br>%{percent}<extra></extra>",
+                    textinfo="percent", textposition="inside",
+                    insidetextorientation='horizontal',
+                    hovertemplate="<b>%{label}</b><br>Revenue: ₹%{value:,.0f}<br>Share: %{percent}<extra></extra>",
                     marker=dict(line=dict(color='#FFFFFF', width=2))
+                )
+                # Center text for Total Revenue
+                fig_rev.add_annotation(
+                    text=f"<span style='font-size:12px;color:#6B7280'>Total Rev</span><br><br><span style='font-size:16px;font-weight:700;color:#0F172A'>{fmt_inr(total_rev)}</span>",
+                    x=0.5, y=0.5, showarrow=False
                 )
                 fig_rev.update_layout(
                     **plotly_defaults,
-                    showlegend=False, height=500, margin=dict(l=20, r=20, t=20, b=20),
+                    height=500,
+                    margin=dict(l=20, r=20, t=20, b=80),
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5, title=""),
+                    uniformtext=dict(minsize=10, mode='hide')
                 )
                 st.plotly_chart(fig_rev, use_container_width=True, config=plotly_config)
+                
+                # Insight indicator
+                st.markdown(f"""
+                <div style='background: #F8FAFC; padding: 12px; border-radius: 8px; border: 1px solid #E2E8F0; margin-top: -10px;'>
+                    <div style='color: #64748B; font-size: 12px; font-weight: 600; text-transform: uppercase;'>Top Contributor</div>
+                    <div style='color: #0F172A; font-size: 14px; font-weight: 700; margin-top: 4px;'>{top_prod}</div>
+                    <div style='color: #2563EB; font-size: 13px; font-weight: 600; margin-top: 2px;'>₹{top_val:,.0f} ({(top_val/total_rev*100):.1f}% of total)</div>
+                </div>
+                """, unsafe_allow_html=True)
 
             st.markdown("<br><div class='chart-title'>Product Details</div><br>", unsafe_allow_html=True)
             bd = breakdown_df.copy()
