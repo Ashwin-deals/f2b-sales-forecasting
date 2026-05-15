@@ -1,7 +1,7 @@
 pymongo
 pandas
-scikit-learn
 python-dotenv
-joblib
 certifi
-tensorflow
+streamlit
+streamlit-option_menu
+plotly
